@@ -1,0 +1,42 @@
+with ytd_data_with_FY as
+( 
+  select * ,
+  case
+      WHEN date BETWEEN '2017-09-01' AND '2018-08-31' THEN 'FY18'
+      WHEN date BETWEEN '2018-09-01' AND '2019-08-31' THEN 'FY19'
+      WHEN date BETWEEN '2019-09-01' AND '2020-08-31' THEN 'FY20'
+      WHEN date BETWEEN '2020-09-01' AND '2021-08-31' THEN 'FY21'
+      WHEN date BETWEEN '2021-09-01' AND '2022-08-31' THEN 'FY22'
+      WHEN date BETWEEN '2022-09-01' AND '2023-08-31' THEN 'FY23'
+      WHEN date BETWEEN '2023-09-01' AND '2024-08-31' THEN 'FY24'
+      WHEN date BETWEEN '2024-09-01' AND '2025-08-31' THEN 'FY25'
+  end as financial_year,
+  case
+    when extract(month from date) in (9,10,11,12,1,2,3) then "H1"
+    when extract(month from date) not in (9,10,11,12,1,2,3) then "H2"
+  end as financial_year_halves
+
+  from `data_marts.ltv_cac_3_years_by_country`
+  where country = "UK"
+  -- and extract(month from date) in (9,10,11,12,1,2,3) -- First Half of Each Financial Year 
+)
+SELECT
+    financial_year,
+    financial_year_halves,
+    SUM(new_customer_total_net_revenue)/sum(acquired_customers) AS TotalNetRevenue,
+    SUM(new_customer_product_materials_cost)/sum(acquired_customers) AS TotalMaterialsCost,
+    SUM(spend)/sum(acquired_customers) AS TotalSpend,
+    -- SUM(acquired_customers)/sum(acquired_customers) AS TotalAcquiredCustomers,
+    SUM(new_customer_product_labour_cost)/sum(acquired_customers) AS TotalProductLabourCost,
+    SUM(new_customer_fulfilment_labour_cost)/sum(acquired_customers) AS TotalFulfilmentLabourCost,
+    SUM(new_customer_payment_processing_costs)/sum(acquired_customers) AS TotalPaymentProcessingCosts,
+    SUM(new_customer_product_packaging_cost)/sum(acquired_customers) AS TotalPackagingCosts,
+    SUM(new_customer_delivery_internal_cost_gbp)/sum(acquired_customers) AS TotalDeliveryCosts,
+FROM
+    ytd_data_with_FY
+WHERE
+    financial_year IS NOT NULL
+GROUP BY
+    financial_year, financial_year_halves
+ORDER BY
+    financial_year ASC;
