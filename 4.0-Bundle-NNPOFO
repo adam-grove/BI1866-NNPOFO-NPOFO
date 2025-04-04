@@ -97,9 +97,15 @@ bundle_media_spend_and_revenue as
   from results t1
   left join `tpw-data-warehouse.data_lake.md_bundles` t2 on upper(trim(t1.bundle_sku)) = upper(trim(t2.bundle_sku))
   where country = "UK"
+  and date between "2023-09-01" and "2025-03-31"
 )
 select 
 date,
-IFNULL(SUM(total_transaction_net_revenue_first_order),0)-IFNULL(SUM(materials_cost_first_order),0)-IFNULL(sum(labour_cost_first_order),0)-IFNULL(sum(fulfilment_cost_first_order),0)-IFNULL(SUM(payment_processing_cost_first_order),0)-IFNULL(SUM(packaging_cost_first_order),0)-IFNULL(SUM(delivery_internal_cost_first_order),0)-(IFNULL(sum(spend),0) + ifnull(sum(affiliate_commission),0)) as NNPOFO
-from `tpw-data-warehouse.data_marts.bundle_media_spend_and_revenue_performance`
+IFNULL(SUM(total_transaction_net_revenue_first_order),0) as bundle_total_transaction_net_revenue_first_order,
+
+
+IFNULL(SUM(materials_cost_first_order),0)+IFNULL(sum(labour_cost_first_order),0)+IFNULL(sum(fulfilment_cost_first_order),0)-IFNULL(SUM(payment_processing_cost_first_order),0)+IFNULL(SUM(packaging_cost_first_order),0)+IFNULL(SUM(delivery_internal_cost_first_order),0) as bundle_nnpofo_costs,
+(IFNULL(sum(spend),0) + ifnull(sum(affiliate_commission),0)) as Bundle_media_spend
+from bundle_media_spend_and_revenue
 group by date
+order by date asc
