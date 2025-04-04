@@ -1,0 +1,105 @@
+with bundle_transactions as
+(
+  select t1.transaction_date as date,
+  t1.default_channel_grouping,
+  t1.TPW_Channels,
+  t1.country,
+  upper(trim(IFNULL(regexp_extract(lower(t1.bundle_sku),r'(.*)?plav$'),t1.bundle_sku))) as bundle_sku,
+  t1.transaction_id,
+  count(distinct t1.transaction_id) as transactions,
+  count(distinct case when t1.transaction_count = 1 then t1.transaction_id end) as new_customers,
+  sum(t1.price_sold_gbp_ex_vat * t1.item_quantity) as bundle_net_revenue,
+  sum(t1.price_sold_gbp * t1.item_quantity) as bundle_revenue
+  from `data_marts.transaction_products_p` t1
+  where t1.bundle_sku is not null
+  group by country, default_channel_grouping, TPW_Channels, date, bundle_sku, transaction_id
+),
+bundle_transactions_grouped as
+(
+  select t1.date,
+  t1.default_channel_grouping,
+  t1.TPW_Channels,
+  t1.country,
+  t1.bundle_sku,
+  count(distinct t1.transaction_id) as transactions,
+  count(distinct case when t2.transaction_count = 1 then t2.transaction_id end) as new_customers,
+  sum(bundle_revenue) as bundle_revenue,
+  sum(t2.total_revenue_gbp) as total_transaction_revenue,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.total_revenue_gbp,0) else 0 end) as total_transaction_revenue_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.product_revenue_ex_vat,0) + coalesce(t2.delivery_revenue_ex_vat,0) else 0 end) as total_transaction_net_revenue_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.product_packaging_cost,0) else 0 end) as packaging_cost_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.product_materials_cost,0) else 0 end) as materials_cost_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.product_labour_cost,0) else 0 end) as labour_cost_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.cpu_cost,0) else 0 end) as fulfilment_cost_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.payment_processing_costs,0) else 0 end) as payment_processing_cost_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(t2.delivery_internal_cost_gbp,0) else 0 end) as delivery_internal_cost_first_order,
+  sum(case when t2.transaction_count = 1 then coalesce(case when t1.date >= "2024-01-01" then partnerize.commission else awin.commission_amount end,0) else 0 end) as affiliate_commission
+  from bundle_transactions t1
+  inner join `tpw-data-warehouse.data_marts.transactions` t2 on t1.transaction_id = t2.transaction_id
+  left join 
+  (
+    SELECT *
+    FROM 
+    (
+      select *,
+      ROW_NUMBER() OVER (PARTITION BY transaction_id) row_number
+      from `data_lake.partnerize_conversions` 
+      where status <> 'rejected'
+    )
+    WHERE row_number = 1
+  ) partnerize on trim(t2.transaction_id) = trim(partnerize.transaction_id)
+  left join 
+  (
+    SELECT *
+    FROM 
+    (
+      select *,
+      ROW_NUMBER() OVER (PARTITION BY order_ref) row_number
+      from `data_lake.aw_campaigns_transaction_level` 
+    )
+    WHERE row_number = 1
+  )awin on trim(t2.transaction_id) = trim(awin.order_ref)
+  group by country, default_channel_grouping, TPW_Channels, date, bundle_sku
+),
+results as
+(
+  select IFNULL(t1.date,t2.date) as date,
+  IFNULL(t1.default_channel_grouping,t2.channel) as default_channel_grouping,
+  IFNULL(t1.TPW_Channels,t2.TPW_Channels) as TPW_Channels,
+  IFNULL(t1.country,t2.country) as country,
+  IFNULL(t1.bundle_sku,t2.bundle_sku) as bundle_sku,
+  t1.transactions,
+  t1.new_customers,
+  t1.bundle_revenue,
+  t1.total_transaction_revenue,
+  t1.total_transaction_net_revenue_first_order,
+  t1.packaging_cost_first_order,
+  t1.materials_cost_first_order,
+  t1.labour_cost_first_order,
+  t1.fulfilment_cost_first_order,
+  t1.payment_processing_cost_first_order,
+  t1.delivery_internal_cost_first_order,
+  t1.affiliate_commission,
+  t2.impressions,
+  t2.clicks,
+  t2.spend
+  from bundle_transactions_grouped t1
+  FULL OUTER JOIN `tpw-data-warehouse.data_marts.bundle_media_spend_by_channel_country_date` t2 on t1.date = t2.date
+  and t1.default_channel_grouping = t2.channel
+  and t1.TPW_Channels = t2.TPW_Channels
+  and t1.country = t2.country
+  and t1.bundle_sku = t2.bundle_sku
+),
+bundle_media_spend_and_revenue as 
+(
+  select t1.*,
+  t2.category
+  from results t1
+  left join `tpw-data-warehouse.data_lake.md_bundles` t2 on upper(trim(t1.bundle_sku)) = upper(trim(t2.bundle_sku))
+  where country = "UK"
+)
+select 
+date,
+IFNULL(SUM(total_transaction_net_revenue_first_order),0)-IFNULL(SUM(materials_cost_first_order),0)-IFNULL(sum(labour_cost_first_order),0)-IFNULL(sum(fulfilment_cost_first_order),0)-IFNULL(SUM(payment_processing_cost_first_order),0)-IFNULL(SUM(packaging_cost_first_order),0)-IFNULL(SUM(delivery_internal_cost_first_order),0)-(IFNULL(sum(spend),0) + ifnull(sum(affiliate_commission),0)) as NNPOFO
+from `tpw-data-warehouse.data_marts.bundle_media_spend_and_revenue_performance`
+group by date
