@@ -1,0 +1,41 @@
+with ytd_data_with_FY as
+( 
+  select * ,
+  case
+      WHEN transaction_date BETWEEN '2017-09-01' AND '2018-08-31' THEN 'FY18'
+      WHEN transaction_date BETWEEN '2018-09-01' AND '2019-08-31' THEN 'FY19'
+      WHEN transaction_date BETWEEN '2019-09-01' AND '2020-08-31' THEN 'FY20'
+      WHEN transaction_date BETWEEN '2020-09-01' AND '2021-08-31' THEN 'FY21'
+      WHEN transaction_date BETWEEN '2021-09-01' AND '2022-08-31' THEN 'FY22'
+      WHEN transaction_date BETWEEN '2022-09-01' AND '2023-08-31' THEN 'FY23'
+      WHEN transaction_date BETWEEN '2023-09-01' AND '2024-08-31' THEN 'FY24'
+      WHEN transaction_date BETWEEN '2024-09-01' AND '2025-08-31' THEN 'FY25'
+  end as financial_year,
+  case
+    when extract(month from transaction_date) in (9,10,11,12,1,2,3) then "H1"
+    when extract(month from transaction_date) not in (9,10,11,12,1,2,3) then "H2"
+  end as financial_year_halves
+
+  from `tpw-data-warehouse.data_marts.transaction_products`
+  where country = "UK"
+  -- and extract(month from date) in (9,10,11,12,1,2,3) -- First Half of Each Financial Year 
+)
+SELECT
+    transaction_date,
+    category_1,
+    SUM(price_sold_gbp_ex_vat * item_quantity) AS TotalNetRevenue,
+    sum(cost_production * item_quantity) as production_costs,
+    sum(cost_packaging* item_quantity)  as packaging_costs,
+    sum(unit_cost * item_quantity) as unit_cost,
+    count(distinct transaction_id) as acquired_customers
+
+
+FROM
+    ytd_data_with_FY
+WHERE
+    transaction_date between "2023-09-01" and "2025-03-31"
+    and transaction_count = 1
+GROUP BY
+    transaction_date, category_1
+ORDER BY
+    transaction_date ASC;
