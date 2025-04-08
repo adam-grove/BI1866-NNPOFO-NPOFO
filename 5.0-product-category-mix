@@ -35,7 +35,8 @@ SELECT
   sum(cost_production * item_quantity) as production_costs,
   sum(cost_packaging* item_quantity)  as packaging_costs,
   sum(unit_cost * item_quantity) as unit_cost,
-  count(distinct transaction_id) as acquired_customers
+  count(distinct transaction_id) as acquired_customers,
+  sum(line_total_product_revenue) as line_total_product_revenue
 
 
 FROM
