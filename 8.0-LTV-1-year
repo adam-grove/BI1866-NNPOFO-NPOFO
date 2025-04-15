@@ -21,7 +21,7 @@ DATE_SUB(DATE_ADD(DATE_TRUNC(acquisition_date, MONTH), INTERVAL 12 MONTH),INTERV
 -- country,
 TPW_Acquisition_Channels,
 acquisition_default_channel_grouping,
-sum(case when date_trunc(date,month) = date_trunc(acquisition_date,month) then 1 else 0 end) as acquired_customers,
+count(distinct case when date_trunc(date,month) = date_trunc(acquisition_date,month) then email_address else null end) as acquired_customers,
 SUM(total_revenue_gbp) as acquisition_revenue,
 SUM(IFNULL(product_revenue_ex_vat,0) + IFNULL(delivery_revenue_ex_vat,0)) as acquisition_net_revenue,
 SUM(product_materials_cost) as product_materials_cost,
