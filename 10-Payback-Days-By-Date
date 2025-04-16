@@ -1,17 +1,18 @@
 with cac_tb as
 (
   select 
-  date,
+  date_trunc(date,month) as month,
   sum(spend) as cac
   from `tpw-data-warehouse.data_marts.ltv_cac_3_years_by_country`
   where country = "UK"
-  group by date
+  group by month
 ),
 first_transactions_with_cac as
 (
   select 
-  acquisition_date,
-  0 as days_difference,
+  date_trunc(acquisition_date,month) as acquisition_month,
+  date_trunc(acquisition_date,month) as date,
+  -0.1 as days_difference,
   count(distinct email_address) as acquired_customers,
   (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) as net_rev_first_order,
   (sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as materials_cost_first_order,
@@ -25,12 +26,13 @@ first_transactions_with_cac as
   and acquisition_date = t1.date
   and transaction_count = 1
   and country = "UK"
-  group by acquisition_date
+  group by acquisition_month
 ),
 acquired_customers_tb as
 (
   select 
-  t1.acquisition_date,
+  t1.acquisition_month,
+  t1.date,
   t1.days_difference,
   t1.acquired_customers,
   t1.NNPOFO - t2.cac as NNPOFO,
@@ -38,31 +40,33 @@ acquired_customers_tb as
   materials_cost_first_order
   from first_transactions_with_cac t1 
   left join cac_tb t2
-    on t1.acquisition_date = t2.date
+    on t1.acquisition_month = t2.month
 ),
 
 
 gross_profit_tb as 
 (
 select 
-acquisition_date,
-date,
-date_diff(date,acquisition_date,day) as days_difference,
+date_trunc(acquisition_date,month) as acquisition_month,
+date_trunc(date,month) as date ,
+date_diff(date_trunc(date,month),date_trunc(acquisition_date,month),month) as days_difference,
 (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) 
 -
 (sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as gross_profit
 
 from `data_marts.transactions`
 where acquisition_date between "2017-09-01" and "2024-03-31"
-and acquisition_date <> date -- after acquisition_date
+-- and acquisition_date <> date -- after acquisition_date
+and transaction_count <> 1
 and country ="UK"
-group by acquisition_date, date
-order by acquisition_date, date asc
+group by date_trunc(acquisition_date,month), date_trunc(date,month), days_difference
+order by acquisition_month, date asc
 ),
 gross_profit_joined as
 (
   select 
-  acquisition_date,
+  acquisition_month,
+  date,
   days_difference,
   NNPOFO as gross_profit
   from acquired_customers_tb
@@ -70,7 +74,8 @@ gross_profit_joined as
   union all 
 
   select
-  acquisition_date,
+  acquisition_month,
+  date,
   days_difference,
   gross_profit
   from gross_profit_tb
@@ -81,46 +86,46 @@ gross_profit_joined as
 gross_profit_cum_tb as 
 (
   select 
-  acquisition_date,
-  -- date,
+  acquisition_month,
+  date,
   days_difference,
   gross_profit,
-  sum(gross_profit) over (partition by acquisition_date order by days_difference asc) as gross_profit_cum
+  sum(gross_profit) over (partition by acquisition_month order by days_difference asc) as gross_profit_cum
   from gross_profit_joined
-  order by acquisition_date, days_difference
+  order by acquisition_month, days_difference
 ),
 gross_profit_cum_cac as
 (
   select t1.*,
   t2.cac,
   t3.acquired_customers,
-  t3.NNPOFO,
+  t3.net_rev_first_order - (materials_cost_first_order + cac) as NNPOFO,
   t3.net_rev_first_order,
   t3.materials_cost_first_order
   from gross_profit_cum_tb t1
   left join cac_tb t2
-    on t1.acquisition_date = t2.date
+    on t1.acquisition_month = t2.month
   left join acquired_customers_tb t3
-    on t1.acquisition_date = t3.acquisition_date
+    on t1.acquisition_month = t3.acquisition_month
 ),
 gross_profit_cum_cac_ranked as
 (
   select 
   *,
-  rank() over(partition by acquisition_date order by days_difference asc) as rnk
+  rank() over(partition by acquisition_month order by days_difference asc) as rnk
   from gross_profit_cum_cac 
   where
   gross_profit_cum > cac
 )
 
 -- select * 
--- from gross_profit_cum_tb
--- where acquisition_date = "2020-01-31" 
+-- from gross_profit_cum_cac
+-- where acquisition_month = "2020-04-01" 
 
 
 select 
-acquisition_date,
-days_difference as payback_days,
+acquisition_month,
+days_difference as payback_month,
 cac as cac,
 NNPOFO,
 acquired_customers,
