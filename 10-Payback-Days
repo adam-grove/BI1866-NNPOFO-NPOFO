@@ -1,0 +1,126 @@
+with cac_tb as
+(
+  select 
+  date,
+  sum(spend) as cac
+  from `tpw-data-warehouse.data_marts.ltv_cac_3_years_by_country`
+  where country = "UK"
+  group by date
+),
+first_transactions_with_cac as
+(
+  select 
+  acquisition_date,
+  0 as days_difference,
+  count(distinct email_address) as acquired_customers,
+  (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) as net_rev_first_order,
+  (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) -
+(sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as NNPOFO
+
+  from `data_marts.transactions` t1
+
+
+  where acquisition_date between "2017-09-01" and "2024-03-31"
+  and acquisition_date = t1.date
+  and country = "UK"
+  group by acquisition_date
+),
+acquired_customers_tb as
+(
+  select 
+  t1.acquisition_date,
+  t1.days_difference,
+  t1.acquired_customers,
+  t1.NNPOFO - t2.cac as NNPOFO,
+  net_rev_first_order
+  from first_transactions_with_cac t1 
+  left join cac_tb t2
+    on t1.acquisition_date = t2.date
+),
+
+
+gross_profit_tb as 
+(
+select 
+acquisition_date,
+date,
+date_diff(date,acquisition_date,day) as days_difference,
+(sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) 
+-
+(sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as gross_profit
+
+from `data_marts.transactions`
+where acquisition_date between "2017-09-01" and "2024-03-31"
+and acquisition_date <> date -- after acquisition_date
+and country ="UK"
+group by acquisition_date, date
+order by acquisition_date, date asc
+),
+gross_profit_joined as
+(
+  select 
+  acquisition_date,
+  days_difference,
+  NNPOFO as gross_profit
+  from acquired_customers_tb
+
+  union all 
+
+  select
+  acquisition_date,
+  days_difference,
+  gross_profit
+  from gross_profit_tb
+
+),
+
+
+gross_profit_cum_tb as 
+(
+  select 
+  acquisition_date,
+  -- date,
+  days_difference,
+  gross_profit,
+  sum(gross_profit) over (partition by acquisition_date order by days_difference asc) as gross_profit_cum
+  from gross_profit_joined
+  order by acquisition_date, days_difference
+),
+gross_profit_cum_cac as
+(
+  select t1.*,
+  t2.cac,
+  t3.acquired_customers,
+  t3.NNPOFO,
+  t3.net_rev_first_order
+  from gross_profit_cum_tb t1
+  left join cac_tb t2
+    on t1.acquisition_date = t2.date
+  left join acquired_customers_tb t3
+    on t1.acquisition_date = t3.acquisition_date
+),
+gross_profit_cum_cac_ranked as
+(
+  select 
+  *,
+  rank() over(partition by acquisition_date order by days_difference asc) as rnk
+  from gross_profit_cum_cac 
+  where
+  gross_profit_cum > cac
+)
+
+-- select * 
+-- from gross_profit_cum_tb
+-- where acquisition_date = "2020-01-31" 
+
+
+select 
+acquisition_date,
+days_difference as payback_days,
+cac as cac,
+NNPOFO,
+acquired_customers,
+net_rev_first_order
+from gross_profit_cum_cac_ranked
+where rnk = 1
+-- and acquisition_date = "2020-01-31" 
