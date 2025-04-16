@@ -33,7 +33,9 @@ ytd_data_with_FY as
   from `data_marts.ltv_cac_3_years_by_country`
   where country = "UK"
   -- and extract(month from date) in (9,10,11,12,1,2,3) -- First Half of Each Financial Year 
-)
+),
+nnpofo_table as 
+(
 SELECT
     date as acquisition_date,
     SUM(new_customer_total_net_revenue) AS TotalNetRevenue,
@@ -41,16 +43,22 @@ SELECT
     SUM(spend)/sum(acquired_customers) AS CAC,
     sum(acquired_customers) as TotalAcquiredCustomers,
    ( SUM(new_customer_total_net_revenue) - (SUM(new_customer_product_materials_cost) +  SUM(new_customer_product_labour_cost) + SUM(new_customer_fulfilment_labour_cost) + SUM(new_customer_payment_processing_costs) + SUM(new_customer_product_packaging_cost) + SUM(new_customer_delivery_internal_cost_gbp) +  SUM(spend))) / sum(acquired_customers) as NNPOFO,
-    sum(t1.acquisition_net_revenue) / sum(acquired_customers) as LTV
+    sum(acquired_customers) as acquired_customers
     -- SUM(acquired_customers)/sum(acquired_customers) AS TotalAcquiredCustomers,
 
 FROM
     ytd_data_with_FY t2
-Left join transaction_metrics t1
-    on t1.acquisition_date = t2.date
+
 WHERE
     date between "2017-09-01" and "2024-03-31"
 GROUP BY
     date
 ORDER BY
-    date ASC;
+    date ASC)
+
+
+select t1.*,
+t2.acquisition_net_revenue / acquired_customers as LTV,
+from nnpofo_table t1
+left join transaction_metrics t2
+  on t1.acquisition_date = t2. acquisition_date
