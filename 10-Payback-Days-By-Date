@@ -14,6 +14,7 @@ first_transactions_with_cac as
   0 as days_difference,
   count(distinct email_address) as acquired_customers,
   (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) as net_rev_first_order,
+  (sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as materials_cost_first_order,
   (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) -
 (sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as NNPOFO
 
@@ -22,6 +23,7 @@ first_transactions_with_cac as
 
   where acquisition_date between "2017-09-01" and "2024-03-31"
   and acquisition_date = t1.date
+  and transaction_count = 1
   and country = "UK"
   group by acquisition_date
 ),
@@ -32,7 +34,8 @@ acquired_customers_tb as
   t1.days_difference,
   t1.acquired_customers,
   t1.NNPOFO - t2.cac as NNPOFO,
-  net_rev_first_order
+  net_rev_first_order,
+  materials_cost_first_order
   from first_transactions_with_cac t1 
   left join cac_tb t2
     on t1.acquisition_date = t2.date
@@ -92,7 +95,8 @@ gross_profit_cum_cac as
   t2.cac,
   t3.acquired_customers,
   t3.NNPOFO,
-  t3.net_rev_first_order
+  t3.net_rev_first_order,
+  t3.materials_cost_first_order
   from gross_profit_cum_tb t1
   left join cac_tb t2
     on t1.acquisition_date = t2.date
@@ -120,7 +124,8 @@ days_difference as payback_days,
 cac as cac,
 NNPOFO,
 acquired_customers,
-net_rev_first_order
+net_rev_first_order,
+materials_cost_first_order
 from gross_profit_cum_cac_ranked
 where rnk = 1
 -- and acquisition_date = "2020-01-31" 
