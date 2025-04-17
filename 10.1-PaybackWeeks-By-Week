@@ -1,0 +1,141 @@
+with cac_tb as
+(
+  select 
+  date_trunc(date,week) as week,
+  sum(spend) as cac
+  from `tpw-data-warehouse.data_marts.ltv_cac_3_years_by_country`
+  where country = "UK"
+  group by week
+),
+first_transactions_with_cac as
+(
+  select 
+  date_trunc(acquisition_date,week) as acquisition_week,
+  date_trunc(acquisition_date,week) as date,
+  -0.1 as week_difference,
+  count(distinct email_address) as acquired_customers,
+  (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) as net_rev_first_order,
+  (sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as materials_cost_first_order,
+  (sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) -
+(sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as first_order_profit_no_cac
+
+  from `data_marts.transactions` t1
+
+
+  where acquisition_date between "2017-09-01" and "2025-03-31"
+  and acquisition_date = t1.date
+  and transaction_count = 1
+  and country = "UK"
+  group by acquisition_week
+),
+acquired_customers_tb as
+(
+  select 
+  -- t1.acquisition_month,
+  t1.acquisition_week,
+  t1.date,
+  t1.week_difference,
+  t1.acquired_customers,
+  t1.first_order_profit_no_cac - cac as nnpofo,
+  net_rev_first_order,
+  materials_cost_first_order
+  from first_transactions_with_cac t1 
+  left join cac_tb t2
+    on t1.acquisition_week = t2.week
+),
+
+
+gross_profit_tb as 
+(
+select 
+date_trunc(acquisition_date,week) as acquisition_week,
+date_trunc(date,week) as date ,
+date_diff(date_trunc(date,week),date_trunc(acquisition_date,week),week) as week_difference,
+(sum(product_revenue_ex_vat + delivery_revenue_ex_vat)) 
+-
+(sum(product_materials_cost) + sum(product_labour_cost)+ sum(product_packaging_cost)+ sum(cpu_cost) + sum(payment_processing_costs) + sum(delivery_internal_cost_gbp)) as gross_profit
+
+from `data_marts.transactions`
+where acquisition_date between "2017-09-01" and "2025-03-31"
+-- and acquisition_date <> date -- after acquisition_date
+and transaction_count <> 1
+and country ="UK"
+group by date_trunc(acquisition_date,week), date_trunc(date,week), week_difference
+order by acquisition_week, date asc
+),
+gross_profit_joined as
+(
+  select 
+  acquisition_week,
+  date,
+  week_difference,
+  nnpofo as gross_profit,
+  # first_order_profit_no_cac as gross_profit
+  from acquired_customers_tb
+
+  union all 
+
+  select
+  acquisition_week,
+  date,
+  week_difference,
+  gross_profit
+  from gross_profit_tb
+
+),
+
+
+gross_profit_cum_tb as 
+(
+  select 
+  acquisition_week,
+  date,
+  week_difference,
+  gross_profit,
+  sum(gross_profit) over (partition by acquisition_week order by week_difference asc) as gross_profit_cum
+  from gross_profit_joined
+  order by acquisition_week, week_difference
+),
+gross_profit_cum_cac as
+(
+  select t1.*,
+  t2.cac,
+  t3.acquired_customers,
+  t3.net_rev_first_order - (materials_cost_first_order + cac) as NNPOFO,
+  t3.net_rev_first_order,
+  t3.materials_cost_first_order
+  from gross_profit_cum_tb t1
+  left join cac_tb t2
+    on t1.acquisition_week = t2.week
+  left join acquired_customers_tb t3
+    on t1.acquisition_week = t3.acquisition_week
+),
+gross_profit_cum_cac_ranked as
+(
+  select 
+  *,
+  rank() over(partition by acquisition_week order by week_difference asc) as rnk
+  from gross_profit_cum_cac 
+  where
+  gross_profit_cum > 0
+)
+
+
+
+
+select * 
+from gross_profit_cum_cac
+where acquisition_week = "2017-08-27" 
+
+
+-- select 
+-- acquisition_week,
+-- case when week_difference = -0.1 then 0 else week_difference end as payback_week,
+-- cac as cac,
+-- NNPOFO,
+-- acquired_customers,
+-- net_rev_first_order,
+-- materials_cost_first_order
+-- from gross_profit_cum_cac_ranked
+-- where rnk = 1
+-- -- and acquisition_date = "2020-01-31" 
