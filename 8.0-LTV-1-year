@@ -35,22 +35,7 @@ transaction_metrics as
 (
 
 
-  SELECT 
-    case
-        WHEN acquisition_date BETWEEN '2017-09-01' AND '2018-08-31' THEN 'FY18'
-        WHEN acquisition_date BETWEEN '2018-09-01' AND '2019-08-31' THEN 'FY19'
-        WHEN acquisition_date BETWEEN '2019-09-01' AND '2020-08-31' THEN 'FY20'
-        WHEN acquisition_date BETWEEN '2020-09-01' AND '2021-08-31' THEN 'FY21'
-        WHEN acquisition_date BETWEEN '2021-09-01' AND '2022-08-31' THEN 'FY22'
-        WHEN acquisition_date BETWEEN '2022-09-01' AND '2023-08-31' THEN 'FY23'
-        WHEN acquisition_date BETWEEN '2023-09-01' AND '2024-08-31' THEN 'FY24'
-        WHEN acquisition_date BETWEEN '2024-09-01' AND '2025-08-31' THEN 'FY25'
-    end as financial_year,
-    case
-      when extract(month from acquisition_date) in (9,10,11,12,1,2,3) then "H1"
-      when extract(month from acquisition_date) not in (9,10,11,12,1,2,3) then "H2"
-    end as financial_year_halves,
-  -- acquisition_date,
+  select
   date_trunc(acquisition_date,month) as acquisition_month,
   DATE_SUB(DATE_ADD(DATE_TRUNC(acquisition_date, MONTH), INTERVAL 12 MONTH),INTERVAL 1 DAY)
   as twelve_months_past_acquisition,
@@ -75,19 +60,76 @@ transaction_metrics as
   twelve_months_past_acquisition,
   -- country,
   TPW_Acquisition_Channels,
-  acquisition_default_channel_grouping,
-  financial_year,
-  financial_year_halves
+  acquisition_default_channel_grouping
 
   -- order by acquisition_date , twelve_months_past_acquisition ,country , TPW_Acquisition_Channels
-)
+),
+data_full_joined as
 
-select 
-t1.*,
+(
+SELECT
+ifnull(t1.acquisition_month, t2.acquisition_month) as acquisition_month,
+t1.twelve_months_past_acquisition,
+ifnull(t1.TPW_Acquisition_Channels, t2.TPW_Channels) as TPW_Acquisition_Channels,
+ifnull(t1.acquisition_default_channel_grouping, t2.default_channel_grouping) as acquisition_default_channel_grouping ,
+t1.acquired_customers,
+t1.acquisition_revenue,
+t1.acquisition_net_revenue,
+t1.product_materials_cost,
+t1.product_labour_cost,
+t1.product_packaging_cost,
+t1.cpu_cost,
+t1.delivery_internal_cost_gbp,
+t1.transactions,
+t1.payment_processing_costs,
+t1.units_quantity,
 t2.total_acquired_customers,
 t2.total_spend
 from transaction_metrics t1
-left join media_and_acquired_customers t2
+full join media_and_acquired_customers t2
   on t1.acquisition_month = t2.acquisition_month
   and t1.TPW_Acquisition_Channels = t2.TPW_Channels 
   and t1.acquisition_default_channel_grouping = t2.default_channel_grouping
+),
+data as 
+(
+SELECT 
+  case
+    WHEN acquisition_month BETWEEN '2017-09-01' AND '2018-08-31' THEN 'FY18'
+    WHEN acquisition_month BETWEEN '2018-09-01' AND '2019-08-31' THEN 'FY19'
+    WHEN acquisition_month BETWEEN '2019-09-01' AND '2020-08-31' THEN 'FY20'
+    WHEN acquisition_month BETWEEN '2020-09-01' AND '2021-08-31' THEN 'FY21'
+    WHEN acquisition_month BETWEEN '2021-09-01' AND '2022-08-31' THEN 'FY22'
+    WHEN acquisition_month BETWEEN '2022-09-01' AND '2023-08-31' THEN 'FY23'
+    WHEN acquisition_month BETWEEN '2023-09-01' AND '2024-08-31' THEN 'FY24'
+    WHEN acquisition_month BETWEEN '2024-09-01' AND '2025-08-31' THEN 'FY25'
+  end as financial_year,
+  case
+    when extract(month from acquisition_month) in (9,10,11,12,1,2,3) then "H1"
+    when extract(month from acquisition_month) not in (9,10,11,12,1,2,3) then "H2"
+  end as financial_year_halves,
+  * 
+from data_full_joined 
+
+)
+-- select 
+-- t1.*,
+-- t2.total_acquired_customers,
+-- t2.total_spend
+-- from transaction_metrics t1
+-- right join media_and_acquired_customers t2
+--   on t1.acquisition_month = t2.acquisition_month
+--   and t1.TPW_Acquisition_Channels = t2.TPW_Channels 
+--   and t1.acquisition_default_channel_grouping = t2.default_channel_grouping
+-- where t1.acquisition_month is null
+
+
+select * 
+from data
+
+-- select acquisition_default_channel_grouping , sum(acquisition_revenue)
+-- from data_full_joined
+-- where acquisition_month = "2020-05-01"
+-- group by acquisition_default_channel_grouping
+-- having sum(acquisition_revenue) > 0
+-- order by acquisition_default_channel_grouping
