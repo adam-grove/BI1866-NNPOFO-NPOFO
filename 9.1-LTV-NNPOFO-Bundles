@@ -1,0 +1,114 @@
+with bundle_customers as 
+(
+  select 
+  distinct
+  transaction_date,
+  email_address,
+  transaction_id
+  from `tpw-data-warehouse.data_marts.transaction_products`
+  where 1=1
+    and transaction_count = 1 -- first transaction
+    and bundle_sku is not null -- bundles
+    and country = "UK" -- UK only 
+    and transaction_date between "2023-09-01" and "2024-03-31"
+),
+net_ltv_tb as -- Net Revenue 
+(
+  select 
+  acquisition_date,
+  sum(delivery_revenue_ex_vat + product_revenue_ex_vat) as net_ltv,
+  count(distinct transaction_id) as transactions
+  from `tpw-data-warehouse.data_marts.transactions`
+  where email_address in (select email_address from bundle_customers)
+  group by acquisition_date
+),
+bundle_first_transaction_metrics as 
+(
+  select
+  t1.date,
+  t1.email_address,
+  t1.transaction_id, 
+  product_revenue_ex_vat + delivery_revenue_ex_vat as bundle_net_revenue_first_order,
+  product_packaging_cost as bundle_packaging_cost_first_order,
+  product_materials_cost as bundle_materials_cost_first_order,
+  product_labour_cost as bundle_labour_cost_first_order,
+  cpu_cost as bundle_cpu_cost_first_order,
+  payment_processing_costs as bundle_payment_processing_cost_first_order,
+  delivery_internal_cost_gbp as bundle_delivery_processing_cost_first_order,
+  case when t1.date >= "2024-01-01" then partnerize.commission else awin.commission_amount end as bundle_affiliate_commission_first_order
+  from `tpw-data-warehouse.data_marts.transactions` t1
+  left join 
+    (
+      SELECT *
+      FROM 
+      (
+        select *,
+        ROW_NUMBER() OVER (PARTITION BY transaction_id) row_number
+        from `data_lake.partnerize_conversions` 
+        where status <> 'rejected'
+      )
+      WHERE row_number = 1
+    ) partnerize on trim(t1.transaction_id) = trim(partnerize.transaction_id)
+  left join 
+    (
+      SELECT *
+      FROM 
+      (
+        select *,
+        ROW_NUMBER() OVER (PARTITION BY order_ref) row_number
+        from `data_lake.aw_campaigns_transaction_level` 
+      )
+      WHERE row_number = 1
+    )awin on trim(t1.transaction_id) = trim(awin.order_ref)
+  where t1.transaction_id in (select transaction_id from bundle_customers) -- only the first transaction (bundle)
+),
+bundle_first_transaction_metrics_by_date as 
+(
+  select 
+  date as acquisition_date, 
+  count(distinct email_address) as bundle_acquired_customers,
+  ifnull(sum(bundle_net_revenue_first_order), 0) as bundle_net_revenue_first_order,
+  ifnull(sum(bundle_packaging_cost_first_order), 0) as bundle_packaging_cost_first_order,
+  ifnull(sum(bundle_materials_cost_first_order), 0) as bundle_materials_cost_first_order,
+  ifnull(sum(bundle_labour_cost_first_order), 0) as bundle_labour_cost_first_order,
+  ifnull(sum(bundle_cpu_cost_first_order), 0) as bundle_cpu_cost_first_order,
+  ifnull(sum(bundle_payment_processing_cost_first_order), 0) as bundle_payment_processing_cost_first_order,
+  ifnull(sum(bundle_delivery_processing_cost_first_order), 0) as bundle_delivery_processing_cost_first_order,
+  ifnull(sum(bundle_affiliate_commission_first_order), 0) as bundle_affiliate_commission_first_order
+  from bundle_first_transaction_metrics
+  group by date 
+),
+bundle_media_spend_by_date as 
+(
+  select
+  date,
+  sum(spend) as spend,
+  sum(clicks) as clicks,
+  sum(impressions) as impressions 
+  from `data_marts.bundle_media_spend_by_channel_country_date`
+  where 1=1
+    and country = "UK"
+    and date >= "2023-09-01"
+  group by date 
+),
+bundle_metrics_media_spend as 
+(
+  select
+  t1.*,
+  t2.spend as bundle_media_spend,
+  t3.net_ltv as bundle_net_ltv
+  from bundle_first_transaction_metrics_by_date t1
+  left join bundle_media_spend_by_date t2
+    on t1.acquisition_date = t2.date
+  left join net_ltv_tb t3
+    on t1.acquisition_date = t3.acquisition_date
+)
+select 
+acquisition_date,
+bundle_net_revenue_first_order,
+bundle_packaging_cost_first_order + bundle_packaging_cost_first_order + bundle_materials_cost_first_order + bundle_labour_cost_first_order + bundle_cpu_cost_first_order + bundle_payment_processing_cost_first_order + bundle_delivery_processing_cost_first_order + bundle_affiliate_commission_first_order as bundle_nnpofo_costs,
+bundle_media_spend,
+bundle_acquired_customers,
+bundle_net_ltv
+from bundle_metrics_media_spend
+order by acquisition_date asc
