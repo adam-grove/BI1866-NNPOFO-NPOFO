@@ -20,6 +20,7 @@ net_ltv_tb as -- Net Revenue
   count(distinct transaction_id) as transactions
   from `tpw-data-warehouse.data_marts.transactions`
   where email_address in (select email_address from bundle_customers)
+  and date BETWEEN DATE_TRUNC(acquisition_date, MONTH) AND DATE_SUB(DATE_ADD(DATE_TRUNC(acquisition_date, MONTH), INTERVAL 1 YEAR),INTERVAL 1 DAY)
   group by acquisition_date
 ),
 bundle_first_transaction_metrics as 
