@@ -1,0 +1,65 @@
+with transaction_metrics as 
+(
+  select 
+  acquisition_date,
+  DATE_SUB(DATE_ADD(DATE_TRUNC(acquisition_date, MONTH), INTERVAL 12 MONTH),INTERVAL 1 DAY)
+  as twelve_months_past_acquisition,
+  SUM(IFNULL(product_revenue_ex_vat,0) + IFNULL(delivery_revenue_ex_vat,0)) as acquisition_net_revenue,
+  FROM `tpw-data-warehouse.data_marts.transactions` t1
+  WHERE date BETWEEN DATE_TRUNC(acquisition_date, MONTH) AND DATE_SUB(DATE_ADD(DATE_TRUNC(acquisition_date, MONTH), INTERVAL 1 YEAR),INTERVAL 1 DAY)
+  and country = "UK"
+  GROUP BY acquisition_date
+
+  -- order by acquisition_date , twelve_months_past_acquisition ,country , TPW_Acquisition_Channels
+),
+ytd_data_with_FY as
+( 
+  select * ,
+  case
+      WHEN date BETWEEN '2017-09-01' AND '2018-08-31' THEN 'FY18'
+      WHEN date BETWEEN '2018-09-01' AND '2019-08-31' THEN 'FY19'
+      WHEN date BETWEEN '2019-09-01' AND '2020-08-31' THEN 'FY20'
+      WHEN date BETWEEN '2020-09-01' AND '2021-08-31' THEN 'FY21'
+      WHEN date BETWEEN '2021-09-01' AND '2022-08-31' THEN 'FY22'
+      WHEN date BETWEEN '2022-09-01' AND '2023-08-31' THEN 'FY23'
+      WHEN date BETWEEN '2023-09-01' AND '2024-08-31' THEN 'FY24'
+      WHEN date BETWEEN '2024-09-01' AND '2025-08-31' THEN 'FY25'
+  end as financial_year,
+  case
+    when extract(month from date) in (9,10,11,12,1,2,3) then "H1"
+    when extract(month from date) not in (9,10,11,12,1,2,3) then "H2"
+  end as financial_year_halves
+
+  from `data_marts.ltv_cac_3_years_by_country`
+  where country = "UK"
+  -- and extract(month from date) in (9,10,11,12,1,2,3) -- First Half of Each Financial Year 
+),
+nnpofo_table as 
+(
+SELECT
+    date as acquisition_date,
+    SUM(new_customer_total_net_revenue) AS TotalNetRevenueFirstTransaction,
+    SUM(new_customer_product_materials_cost) +  SUM(new_customer_product_labour_cost) + SUM(new_customer_fulfilment_labour_cost) + SUM(new_customer_payment_processing_costs) + SUM(new_customer_product_packaging_cost) + SUM(new_customer_delivery_internal_cost_gbp) AS TotalMaterialsCost,
+    SUM(spend) AS total_media_spend,
+    sum(acquired_customers) as TotalAcquiredCustomers,
+   # ( SUM(new_customer_total_net_revenue) - (SUM(new_customer_product_materials_cost) +  SUM(new_customer_product_labour_cost) + SUM(new_customer_fulfilment_labour_cost) + SUM(new_customer_payment_processing_costs) + SUM(new_customer_product_packaging_cost) + SUM(new_customer_delivery_internal_cost_gbp) +  SUM(spend))) / sum(acquired_customers) as NNPOFO,
+    -- sum(acquired_customers) as acquired_customers
+    -- SUM(acquired_customers)/sum(acquired_customers) AS TotalAcquiredCustomers,
+
+FROM
+    ytd_data_with_FY t2
+
+WHERE
+    date between "2023-09-01" and "2024-03-31"
+GROUP BY
+    date
+ORDER BY
+    date ASC)
+
+
+select t1.*,
+t2.acquisition_net_revenue as LTV,
+from nnpofo_table t1
+left join transaction_metrics t2
+  on t1.acquisition_date = t2. acquisition_date
+order by acquisition_date 
